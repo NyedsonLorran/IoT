@@ -1,0 +1,215 @@
+#include <stdio.h>
+#include <string.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "driver/gpio.h"
+#include "driver/uart.h"
+#include "driver/ledc.h"
+
+#include "esp_timer.h"
+#include "esp_log.h"
+
+#define LED1_PIN 4
+#define LED2_PIN 5
+
+#define BTN_A_PIN 1
+#define BTN_B_PIN 2
+
+#define BUZZER_PIN 6
+
+#define UART_PORT UART_NUM_0
+#define UART_BAUD 115200
+#define UART_BUFFER 1024
+
+#define BUZZER_FREQ 1000
+#define BUZZER_RESOLUTION LEDC_TIMER_10_BIT
+
+/* VARIÁVEIS */
+
+static int led1_state = 0;
+static int led2_state = 0;
+static int botaoB_habilitado = 1;
+
+/* LEDS */
+
+void iniciar_leds()
+{
+    gpio_config_t io_conf = {
+        .mode = GPIO_MODE_OUTPUT,
+        .intr_type = GPIO_INTR_DISABLE,
+        .pin_bit_mask = (1ULL << LED1_PIN) | (1ULL << LED2_PIN)
+    };
+
+    gpio_config(&io_conf);
+
+    gpio_set_level(LED1_PIN, 0);
+    gpio_set_level(LED2_PIN, 0);
+}
+
+/* BOTÕES */
+
+void iniciar_botoes()
+{
+    gpio_config_t io_conf = {
+        .mode = GPIO_MODE_INPUT,
+        .intr_type = GPIO_INTR_DISABLE,
+        .pin_bit_mask = (1ULL << BTN_A_PIN) | (1ULL << BTN_B_PIN)
+    };
+
+    gpio_config(&io_conf);
+}
+
+/*  BUZZER  */
+
+void iniciar_buzzer()
+{
+    ledc_timer_config_t timer_conf = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .timer_num = LEDC_TIMER_1,
+        .duty_resolution = BUZZER_RESOLUTION,
+        .freq_hz = BUZZER_FREQ,
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+
+    ledc_timer_config(&timer_conf);
+
+    ledc_channel_config_t channel_conf = {
+        .gpio_num = BUZZER_PIN,
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = LEDC_CHANNEL_0,
+        .timer_sel = LEDC_TIMER_1,
+        .duty = 0
+    };
+
+    ledc_channel_config(&channel_conf);
+}
+
+void controlar_buzzer(int estado)
+{
+    if(botaoB_habilitado)
+    {
+        ledc_set_duty(LEDC_LOW_SPEED_MODE,
+                      LEDC_CHANNEL_0,
+                      estado ? 512 : 0);
+
+        ledc_update_duty(LEDC_LOW_SPEED_MODE,
+                         LEDC_CHANNEL_0);
+    }
+}
+
+/* TIMER */
+
+void callback_timer(void *arg)
+{
+    led2_state = !led2_state;
+    gpio_set_level(LED2_PIN, led2_state);
+}
+
+void iniciar_timer()
+{
+    const esp_timer_create_args_t timer_args = {
+        .callback = callback_timer,
+        .name = "timer_led2"
+    };
+
+    esp_timer_handle_t timer_handle;
+
+    esp_timer_create(&timer_args, &timer_handle);
+    esp_timer_start_periodic(timer_handle, 2000000);
+}
+
+/* UART */
+
+void iniciar_uart()
+{
+    uart_config_t config = {
+        .baud_rate = UART_BAUD,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+    };
+
+    uart_param_config(UART_PORT, &config);
+
+    uart_driver_install(UART_PORT,
+                        UART_BUFFER * 2,
+                        0,
+                        0,
+                        NULL,
+                        0);
+}
+
+void processar_uart()
+{
+    uint8_t dados[UART_BUFFER];
+
+    int tamanho = uart_read_bytes(UART_PORT,
+                                  dados,
+                                  UART_BUFFER,
+                                  pdMS_TO_TICKS(100));
+
+    if(tamanho > 0)
+    {
+        dados[tamanho] = '\0';
+
+        if(dados[tamanho-1] == '\n' || dados[tamanho-1] == '\r')
+            dados[tamanho-1] = '\0';
+
+        if(strcmp((char*)dados, "a") == 0)
+        {
+            botaoB_habilitado = 0;
+            ESP_LOGI("UART", "Botao B desativado");
+        }
+        else if(strcmp((char*)dados, "b") == 0)
+        {
+            botaoB_habilitado = 1;
+            ESP_LOGI("UART", "Botao B ativado");
+        }
+    }
+}
+
+/*LEITURA DOS BOTÕES*/
+
+void verificar_botoes()
+{
+    int leituraA = gpio_get_level(BTN_A_PIN);
+    int leituraB = gpio_get_level(BTN_B_PIN);
+
+    if(leituraA == 0)
+    {
+        led1_state = !led1_state;
+        gpio_set_level(LED1_PIN, led1_state);
+
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
+    if(leituraB == 0 && botaoB_habilitado)
+    {
+        controlar_buzzer(1);
+
+        vTaskDelay(pdMS_TO_TICKS(1500));
+
+        controlar_buzzer(0);
+    }
+}
+
+
+void app_main(void)
+{
+    iniciar_leds();
+    iniciar_botoes();
+    iniciar_buzzer();
+    iniciar_timer();
+    iniciar_uart();
+
+    while(1)
+    {
+        verificar_botoes();
+        processar_uart();
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}

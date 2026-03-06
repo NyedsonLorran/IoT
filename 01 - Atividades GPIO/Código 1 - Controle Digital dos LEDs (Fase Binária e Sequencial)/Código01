@@ -1,0 +1,84 @@
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
+
+// GPIOs dos LEDs
+#define LED1_GPIO 4
+#define LED2_GPIO 5
+#define LED3_GPIO 6
+#define LED4_GPIO 7
+#define DELAY_MS 500
+
+void config_leds() {
+
+    gpio_config_t config;
+
+    config.intr_type = GPIO_INTR_DISABLE;
+    config.mode = GPIO_MODE_OUTPUT;
+
+    config.pin_bit_mask = (1ULL << LED1_GPIO) |
+                          (1ULL << LED2_GPIO) |
+                          (1ULL << LED3_GPIO) |
+                          (1ULL << LED4_GPIO);
+
+    config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    config.pull_up_en = GPIO_PULLUP_DISABLE;
+
+    gpio_config(&config);
+}
+
+void set_led(int index, int state) {
+
+    int gpio_num;
+
+    switch(index) {
+        case 0: gpio_num = LED1_GPIO; break;
+        case 1: gpio_num = LED2_GPIO; break;
+        case 2: gpio_num = LED3_GPIO; break;
+        case 3: gpio_num = LED4_GPIO; break;
+        default: return;
+    }
+
+    gpio_set_level((gpio_num_t)gpio_num, state);
+}
+
+void set_leds_binary(uint8_t value) {
+
+    for (int j = 0; j < 4; j++) {
+        int bit = (value >> j) & 0x01;
+        set_led(3 - j, bit);
+    }
+}
+
+void fase1_binario() {
+
+    for (int i = 0; i < 16; i++) {
+        set_leds_binary(i);
+        vTaskDelay(pdMS_TO_TICKS(DELAY_MS));
+    }
+}
+
+void fase2_varredura() {
+
+    for (int i = 0; i < 4; i++) {
+        set_leds_binary(0);
+        set_led(i, 1);
+        vTaskDelay(pdMS_TO_TICKS(DELAY_MS));
+    }
+
+    for (int i = 2; i >= 0; i--) {
+        set_leds_binary(0);
+        set_led(i, 1);
+        vTaskDelay(pdMS_TO_TICKS(DELAY_MS));
+    }
+}
+
+void setup() {
+    config_leds();
+}
+
+void loop() {
+    fase1_binario();
+    fase2_varredura();
+}
