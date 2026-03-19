@@ -17,7 +17,7 @@
 
 static const char *LOG_TAG = "TIME_SYNC";
 
-// -------------------- WIFI --------------------
+//  WIFI GOI
 
 static void handle_wifi_events(void *arg, esp_event_base_t base,
                                int32_t id, void *data) {
